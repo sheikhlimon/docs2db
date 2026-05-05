@@ -1,6 +1,5 @@
 """Database operations for loading embeddings and chunks into PostgreSQL with pgvector."""
 
-import asyncio
 import json
 import logging
 import os
@@ -173,19 +172,19 @@ class DatabaseManager:
         self.user = user
         self.password = password
 
-    async def get_direct_connection(self):
+    def get_direct_connection(self):
         """Get a direct database connection."""
         connection_string = f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
-        return await psycopg.AsyncConnection.connect(connection_string)
+        return psycopg.Connection.connect(connection_string)
 
-    async def insert_schema_metadata(
+    def insert_schema_metadata(
         self,
         conn,
         title: Optional[str] = None,
         description: Optional[str] = None,
     ) -> None:
         """Insert initial schema metadata record."""
-        await conn.execute(
+        conn.execute(
             """
             INSERT INTO schema_metadata (
                 title, description,
@@ -195,7 +194,7 @@ class DatabaseManager:
             [title, description, DATABASE_SCHEMA_VERSION],
         )
 
-    async def update_schema_metadata(
+    def update_schema_metadata(
         self,
         conn,
         title: Optional[str] = None,
@@ -219,7 +218,7 @@ class DatabaseManager:
         if updates:
             updates.append("last_modified_at = NOW()")
             sql = f"UPDATE schema_metadata SET {', '.join(updates)} WHERE id = 1"
-            await conn.execute(sql, params)
+            conn.execute(sql, params)
 
     def format_schema_change_display(self, change_data: dict) -> str:
         """Format a schema change record for display.
@@ -280,7 +279,7 @@ class DatabaseManager:
 
         return "\n".join(lines)
 
-    async def insert_model(
+    def insert_model(
         self,
         conn,
         name: str,
@@ -294,7 +293,7 @@ class DatabaseManager:
         Uses INSERT ... ON CONFLICT to handle concurrent insertions safely.
         """
         # Insert model, or do nothing if already exists (atomic operation)
-        result = await conn.execute(
+        result = conn.execute(
             """
             INSERT INTO models (name, dimensions, provider, description)
             VALUES (%s, %s, %s, %s)
@@ -303,30 +302,30 @@ class DatabaseManager:
             """,
             [name, dimensions, provider, description],
         )
-        row = await result.fetchone()
+        row = result.fetchone()
 
         # If ON CONFLICT triggered, fetch existing model ID
         if row is None:
-            result = await conn.execute("SELECT id FROM models WHERE name = %s", [name])
-            row = await result.fetchone()
+            result = conn.execute("SELECT id FROM models WHERE name = %s", [name])
+            row = result.fetchone()
             if row is None:
                 raise DatabaseError(f"Failed to insert or retrieve model: {name}")
 
         return row[0]
 
-    async def get_model(self, conn, name: str) -> Optional[int]:
+    def get_model(self, conn, name: str) -> Optional[int]:
         """Get model ID by name."""
-        result = await conn.execute("SELECT id FROM models WHERE name = %s", [name])
-        row = await result.fetchone()
+        result = conn.execute("SELECT id FROM models WHERE name = %s", [name])
+        row = result.fetchone()
         return row[0] if row else None
 
-    async def get_model_info(self, conn, model: int) -> Optional[dict]:
+    def get_model_info(self, conn, model: int) -> Optional[dict]:
         """Get model information by ID."""
-        result = await conn.execute(
+        result = conn.execute(
             "SELECT id, name, dimensions, provider, description, created_at FROM models WHERE id = %s",
             [model],
         )
-        row = await result.fetchone()
+        row = result.fetchone()
         if row:
             return {
                 "id": row[0],
@@ -338,7 +337,7 @@ class DatabaseManager:
             }
         return None
 
-    async def insert_schema_change(
+    def insert_schema_change(
         self,
         conn,
         changed_by_user: str = "",
@@ -355,7 +354,7 @@ class DatabaseManager:
         if embedding_models_added is None:
             embedding_models_added = []
 
-        await conn.execute(
+        conn.execute(
             """
             INSERT INTO schema_changes (
                 changed_by_tool, changed_by_version, changed_by_user,
@@ -390,17 +389,17 @@ class DatabaseManager:
             ],
         )
 
-    async def initialize_schema(self) -> None:
+    def initialize_schema(self) -> None:
         """Initialize database schema with tables for documents, chunks, and embeddings."""
         # Check if schema already exists and create it if needed
-        async with await self.get_direct_connection() as conn:
-            tables_result = await conn.execute("""
+        with self.get_direct_connection() as conn:
+            tables_result = conn.execute("""
                 SELECT table_name
                 FROM information_schema.tables
                 WHERE table_schema = 'public'
                 AND table_name IN ('documents', 'chunks', 'embeddings', 'schema_metadata', 'schema_changes')
             """)
-            existing_tables = [row[0] for row in await tables_result.fetchall()]
+            existing_tables = [row[0] for row in tables_result.fetchall()]
             schema_exists = len(existing_tables) == 5
 
             schema_sql = """
@@ -537,22 +536,22 @@ class DatabaseManager:
         $$;
         """
 
-            await conn.execute(schema_sql)
-            await conn.commit()
+            conn.execute(schema_sql)
+            conn.commit()
 
             if not schema_exists:
                 # Insert initial schema metadata
-                await self.insert_schema_metadata(conn)
+                self.insert_schema_metadata(conn)
 
                 # Insert initial change record (creation event)
-                await self.insert_schema_change(
+                self.insert_schema_change(
                     conn, changed_by_user="", notes="Database initialized"
                 )
 
-                await conn.commit()
+                conn.commit()
                 logger.info("Database schema initialized successfully")
 
-    async def update_rag_settings(
+    def update_rag_settings(
         self,
         refinement_prompt: Optional[str] = None,
         enable_refinement: Optional[bool] = None,
@@ -584,14 +583,14 @@ class DatabaseManager:
             refinement_questions_count: Number of refined questions to generate
             _clear_*: If True, explicitly set the field to NULL
         """
-        async with await self.get_direct_connection() as conn:
+        with self.get_direct_connection() as conn:
             # Check if settings row exists
-            result = await conn.execute("SELECT id FROM rag_settings WHERE id = 1")
-            row = await result.fetchone()
+            result = conn.execute("SELECT id FROM rag_settings WHERE id = 1")
+            row = result.fetchone()
 
             if row is None:
                 # Insert new row with provided values
-                await conn.execute(
+                conn.execute(
                     """
                     INSERT INTO rag_settings (
                         id, refinement_prompt, enable_refinement, enable_reranking,
@@ -684,22 +683,22 @@ class DatabaseManager:
                     update_sql = (
                         f"UPDATE rag_settings SET {', '.join(updates)} WHERE id = 1"
                     )
-                    await conn.execute(update_sql, values)
+                    conn.execute(update_sql, values)
                     logger.info(f"RAG settings updated: {', '.join(updated_fields)}")
                 else:
                     logger.info("No RAG settings to update (all values were None)")
 
-            await conn.commit()
+            conn.commit()
 
-    async def get_rag_settings(self) -> Optional[Dict[str, Any]]:
+    def get_rag_settings(self) -> Optional[Dict[str, Any]]:
         """Get RAG settings from the database.
 
         Returns:
             Dictionary with RAG settings, or None if no settings exist
         """
-        async with await self.get_direct_connection() as conn:
+        with self.get_direct_connection() as conn:
             try:
-                result = await conn.execute(
+                result = conn.execute(
                     """
                     SELECT refinement_prompt, enable_refinement, enable_reranking,
                            similarity_threshold, max_chunks, max_tokens_in_context,
@@ -707,7 +706,7 @@ class DatabaseManager:
                     FROM rag_settings WHERE id = 1
                     """
                 )
-                row = await result.fetchone()
+                row = result.fetchone()
 
                 if row is None:
                     return None
@@ -725,7 +724,7 @@ class DatabaseManager:
                 logger.warning(f"Could not retrieve RAG settings: {e}")
                 return None
 
-    async def load_document_batch(
+    def load_document_batch(
         self,
         files_data: List[
             Tuple[Path, Path, str, Dict[str, Any], Path]
@@ -748,15 +747,15 @@ class DatabaseManager:
         model_dimensions = model_config.get("dimensions", 0)
 
         # Insert model if it doesn't exist and get model ID
-        async with await self.get_direct_connection() as conn:
-            model_id = await self.insert_model(
+        with self.get_direct_connection() as conn:
+            model_id = self.insert_model(
                 conn,
                 name=model,
                 dimensions=model_dimensions,
                 provider=None,  # Provider is no longer stored in config
                 description=f"Embedding model: {model}",
             )
-            await conn.commit()
+            conn.commit()
 
         # Prepare bulk data
         documents_data = []
@@ -813,11 +812,8 @@ class DatabaseManager:
             return 0, errors
 
         # Bulk database operations
-        async with await self.get_direct_connection() as conn:
+        with self.get_direct_connection() as conn:
             try:
-                # Begin transaction for entire batch
-                await conn.execute("BEGIN")
-
                 # Bulk insert/update documents
                 doc_path_to_id = {}
                 for (
@@ -832,7 +828,7 @@ class DatabaseManager:
                         # Check if we should skip (not force and current embeddings exist)
                         if not force:
                             # Get existing embeddings creation time
-                            existing_result = await conn.execute(
+                            existing_result = conn.execute(
                                 """
                                 SELECT MAX(e.created_at) as latest_embedding_time
                                 FROM documents d
@@ -842,7 +838,7 @@ class DatabaseManager:
                                 """,
                                 (str(source_file), model_id_from_data),
                             )
-                            existing_row = await existing_result.fetchone()
+                            existing_row = existing_result.fetchone()
 
                             if existing_row and existing_row[0]:  # embeddings exist
                                 latest_embedding_time = existing_row[0]
@@ -858,7 +854,7 @@ class DatabaseManager:
                                         continue
 
                         # Insert/update document
-                        doc_result = await conn.execute(
+                        doc_result = conn.execute(
                             """
                             INSERT INTO documents (path, filename, content_type, file_size, last_modified, chunks_file_path)
                             VALUES (%s, %s, %s, %s, %s, %s)
@@ -872,7 +868,7 @@ class DatabaseManager:
                             """,
                             doc_data,
                         )
-                        doc_row = await doc_result.fetchone()
+                        doc_row = doc_result.fetchone()
                         if doc_row is None:
                             raise DatabaseError(
                                 f"Failed to insert/update document: {source_file}"
@@ -883,7 +879,7 @@ class DatabaseManager:
 
                         # Delete existing chunks and embeddings if force
                         if force:
-                            await conn.execute(
+                            conn.execute(
                                 "DELETE FROM chunks WHERE document_id = %s",
                                 (document_id,),
                             )
@@ -924,7 +920,7 @@ class DatabaseManager:
                     model,
                 ) in chunks_data:
                     try:
-                        chunk_result = await conn.execute(
+                        chunk_result = conn.execute(
                             """
                             INSERT INTO chunks (document_id, chunk_index, text, contextual_text, metadata, text_search_vector)
                             VALUES (%s, %s, %s, %s, %s, to_tsvector('english', %s))
@@ -938,7 +934,7 @@ class DatabaseManager:
                             chunk_data
                             + (chunk_data[3],),  # Add contextual_text for tsvector
                         )
-                        chunk_row = await chunk_result.fetchone()
+                        chunk_row = chunk_result.fetchone()
                         if chunk_row is None:
                             raise DatabaseError(
                                 f"Failed to insert chunk for {source_file}"
@@ -964,7 +960,7 @@ class DatabaseManager:
                 # Bulk insert embeddings
                 for embedding_tuple in embeddings_data:
                     try:
-                        await conn.execute(
+                        conn.execute(
                             """
                             INSERT INTO embeddings (chunk_id, model, embedding)
                             VALUES (%s, %s, %s)
@@ -979,10 +975,10 @@ class DatabaseManager:
                         errors += 1
 
                 # Commit the entire batch
-                await conn.execute("COMMIT")
+                conn.commit()
 
             except Exception as e:
-                await conn.execute("ROLLBACK")
+                conn.rollback()
                 logger.error(f"Batch transaction failed: {e}")
                 errors += len(documents_data)
                 processed = 0
@@ -1005,21 +1001,21 @@ class DatabaseManager:
         """Convert Unix timestamp to datetime object for PostgreSQL."""
         return datetime.fromtimestamp(unix_timestamp, tz=timezone.utc)
 
-    async def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> Dict[str, Any]:
         """Get database statistics."""
-        async with await self.get_direct_connection() as conn:
+        with self.get_direct_connection() as conn:
             # Document stats
-            doc_result = await conn.execute("SELECT COUNT(*) FROM documents")
-            doc_row = await doc_result.fetchone()
+            doc_result = conn.execute("SELECT COUNT(*) FROM documents")
+            doc_row = doc_result.fetchone()
             doc_count = doc_row[0] if doc_row else 0
 
             # Chunk stats
-            chunk_result = await conn.execute("SELECT COUNT(*) FROM chunks")
-            chunk_row = await chunk_result.fetchone()
+            chunk_result = conn.execute("SELECT COUNT(*) FROM chunks")
+            chunk_row = chunk_result.fetchone()
             chunk_count = chunk_row[0] if chunk_row else 0
 
             # Check if models table exists
-            models_check = await conn.execute(
+            models_check = conn.execute(
                 """
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables
@@ -1028,7 +1024,7 @@ class DatabaseManager:
                 )
                 """
             )
-            models_row = await models_check.fetchone()
+            models_row = models_check.fetchone()
             has_models_table = models_row[0] if models_row else False
 
             if not has_models_table:
@@ -1040,7 +1036,7 @@ class DatabaseManager:
 
             # Embedding stats by model (join with models table)
             embedding_models = {}
-            embedding_stats = await conn.execute(
+            embedding_stats = conn.execute(
                 """
                 SELECT m.name, COUNT(e.id) as count, m.dimensions
                 FROM models m
@@ -1049,7 +1045,7 @@ class DatabaseManager:
                 ORDER BY m.name
                 """
             )
-            async for row in embedding_stats:
+            for row in embedding_stats:
                 model, count, dimensions = row
                 embedding_models[model] = {
                     "count": count,
@@ -1062,7 +1058,7 @@ class DatabaseManager:
                 "embedding_models": embedding_models,
             }
 
-    async def generate_manifest(self, output_file: str = "manifest.txt") -> bool:
+    def generate_manifest(self, output_file: str = "manifest.txt") -> bool:
         """Generate a manifest file with all unique source files in the database.
 
         Args:
@@ -1071,9 +1067,9 @@ class DatabaseManager:
         Returns:
             bool: True if successful, False otherwise
         """
-        async with await self.get_direct_connection() as conn:
+        with self.get_direct_connection() as conn:
             # Query for distinct document paths from documents table
-            result = await conn.execute(
+            result = conn.execute(
                 """
                 SELECT DISTINCT path
                 FROM documents
@@ -1086,7 +1082,7 @@ class DatabaseManager:
             file_count = 0
 
             with open(manifest_path, "w") as f:
-                async for row in result:
+                for row in result:
                     document_path = row[0]
                     f.write(f"{document_path}\n")
                     file_count += 1
@@ -1098,7 +1094,7 @@ class DatabaseManager:
             return True
 
 
-async def check_database_status(
+def check_database_status(
     host: Optional[str] = None,
     port: Optional[int] = None,
     db: Optional[str] = None,
@@ -1139,12 +1135,12 @@ async def check_database_status(
             f"postgresql://{user}:{password}@{host}:{port}/postgres"
         )
 
-        async with await psycopg.AsyncConnection.connect(
+        with psycopg.Connection.connect(
             basic_connection_string, connect_timeout=5
         ) as conn:
             # Test basic connectivity
-            result = await conn.execute("SELECT version(), now()")
-            row = await result.fetchone()
+            result = conn.execute("SELECT version(), now()")
+            row = result.fetchone()
             if row:
                 _pg_version, _current_time = row
                 logger.info("Database connection successful")
@@ -1176,9 +1172,9 @@ async def check_database_status(
     # Section 2: Test target database connectivity
     try:
         # Now connect to our target database and test it
-        async with await db_manager.get_direct_connection() as conn:
+        with db_manager.get_direct_connection() as conn:
             # Test that we can actually query the target database
-            await conn.execute("SELECT 1")
+            conn.execute("SELECT 1")
     except Exception as conn_error:
         # If we get here, PostgreSQL is running but our target database doesn't exist
         logger.error("Database does not exist. Create database or check name")
@@ -1187,11 +1183,11 @@ async def check_database_status(
     # If we get here, connection was successful, continue with checks
 
     # Check for pgvector extension
-    async with await db_manager.get_direct_connection() as conn:
-        ext_result = await conn.execute(
+    with db_manager.get_direct_connection() as conn:
+        ext_result = conn.execute(
             "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
         )
-        ext_row = await ext_result.fetchone()
+        ext_row = ext_result.fetchone()
         if ext_row:
             _ext_name, ext_version = ext_row
             logger.info(f"pgvector extension found: version={ext_version}")
@@ -1203,8 +1199,8 @@ async def check_database_status(
             raise DatabaseError("pgvector extension not installed")
 
     # Check if tables exist
-    async with await db_manager.get_direct_connection() as conn:
-        tables_result = await conn.execute("""
+    with db_manager.get_direct_connection() as conn:
+        tables_result = conn.execute("""
                 SELECT table_name
                 FROM information_schema.tables
                 WHERE table_schema = 'public'
@@ -1212,7 +1208,7 @@ async def check_database_status(
                 ORDER BY table_name
             """)
         tables = []
-        async for row in tables_result:
+        for row in tables_result:
             tables.append(row[0])
 
         if len(tables) == 3:
@@ -1231,7 +1227,7 @@ async def check_database_status(
             raise DatabaseError("No docs2db tables found")
 
     # Get database statistics
-    stats = await db_manager.get_stats()
+    stats = db_manager.get_stats()
 
     total_embeddings = sum(
         model_info["count"] for model_info in stats["embedding_models"].values()
@@ -1255,12 +1251,10 @@ async def check_database_status(
             )
 
     # Display schema metadata if available
-    async with await db_manager.get_direct_connection() as conn:
+    with db_manager.get_direct_connection() as conn:
         try:
-            metadata_result = await conn.execute(
-                "SELECT * FROM schema_metadata WHERE id = 1"
-            )
-            metadata_row = await metadata_result.fetchone()
+            metadata_result = conn.execute("SELECT * FROM schema_metadata WHERE id = 1")
+            metadata_row = metadata_result.fetchone()
             if metadata_row and metadata_result.description:
                 columns = [desc[0] for desc in metadata_result.description]
                 metadata = dict(zip(columns, metadata_row))
@@ -1278,9 +1272,9 @@ async def check_database_status(
             pass
 
     # Display recent schema changes (last 5)
-    async with await db_manager.get_direct_connection() as conn:
+    with db_manager.get_direct_connection() as conn:
         try:
-            changes_result = await conn.execute("""
+            changes_result = conn.execute("""
                 SELECT
                     id,
                     changed_at,
@@ -1301,7 +1295,7 @@ async def check_database_status(
             """)
 
             changes = []
-            async for row in changes_result:
+            for row in changes_result:
                 if changes_result.description:
                     columns = [desc[0] for desc in changes_result.description]
                     change_data = dict(zip(columns, row))
@@ -1317,8 +1311,8 @@ async def check_database_status(
 
     if stats["documents"] > 0:
         # Get recent activity
-        async with await db_manager.get_direct_connection() as conn:
-            recent_result = await conn.execute("""
+        with db_manager.get_direct_connection() as conn:
+            recent_result = conn.execute("""
                 SELECT
                     path,
                     created_at,
@@ -1329,7 +1323,7 @@ async def check_database_status(
             """)
 
             file_str = ""
-            async for row in recent_result:
+            for row in recent_result:
                 path, created_at, updated_at = row
                 # Strip /source.json suffix for cleaner display
                 display_path = path.removesuffix("/source.json")
@@ -1337,17 +1331,17 @@ async def check_database_status(
             logger.info(f"\nRecent document activity (last 5)\n{file_str}")
 
         # Database size information
-        async with await db_manager.get_direct_connection() as conn:
-            size_result = await conn.execute(
+        with db_manager.get_direct_connection() as conn:
+            size_result = conn.execute(
                 "SELECT pg_size_pretty(pg_database_size(%s)) as db_size", (db,)
             )
-            size_row = await size_result.fetchone()
+            size_row = size_result.fetchone()
             if size_row:
                 db_size = size_row[0]
                 logger.info(f"Database size: {db_size}")
 
     # Display RAG settings if configured
-    rag_settings = await db_manager.get_rag_settings()
+    rag_settings = db_manager.get_rag_settings()
     if rag_settings:
         # Format non-None settings for display
         settings_lines = []
@@ -1388,7 +1382,7 @@ async def check_database_status(
     logger.info("Database status check complete")
 
 
-async def load_files(
+def load_files(
     content_dir: Path, model: str, pattern: str, force: bool
 ) -> list[tuple[Path, Path]]:
     """Find source files and their corresponding embedding files for loading.
@@ -1418,7 +1412,7 @@ async def load_files(
     return valid_pairs
 
 
-async def _ensure_database_exists(
+def _ensure_database_exists(
     host: str, port: int, db: str, user: str, password: str
 ) -> None:
     """Ensure the target database exists, create it if it doesn't."""
@@ -1427,22 +1421,20 @@ async def _ensure_database_exists(
     connection_str = f"postgresql://{user}:{password}@{host}:{port}/postgres"
 
     try:
-        async with await psycopg.AsyncConnection.connect(
+        with psycopg.Connection.connect(
             connection_str,
             connect_timeout=5,
             autocommit=True,  # Needed for CREATE DATABASE
         ) as conn:
             # Check if our target database exists
-            result = await conn.execute(
-                "SELECT 1 FROM pg_database WHERE datname = %s", (db,)
-            )
-            db_exists = await result.fetchone()
+            result = conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db,))
+            db_exists = result.fetchone()
 
             if not db_exists:
                 logger.info(f"Creating database '{db}'...")
                 # Create the database (note: can't use parameters for database name in CREATE DATABASE)
                 create_db_query = SQL("CREATE DATABASE {}").format(Identifier(db))
-                await conn.execute(create_db_query)
+                conn.execute(create_db_query)
                 logger.info(f"Database '{db}' created successfully")
 
     except Exception as e:
@@ -1485,19 +1477,17 @@ def load_batch_worker(
         file_paths = [Path(f) for f in file_batch]
         content_dir_path = Path(content_dir)
 
-        # Run the async loading function
-        processed, errors = asyncio.run(
-            _load_batch_async(
-                file_paths,
-                model,
-                content_dir_path,
-                db_host,
-                db_port,
-                db_name,
-                db_user,
-                db_password,
-                force,
-            )
+        # Run the loading function
+        processed, errors = _load_batch(
+            file_paths,
+            model,
+            content_dir_path,
+            db_host,
+            db_port,
+            db_name,
+            db_user,
+            db_password,
+            force,
         )
 
         # Get memory usage
@@ -1527,7 +1517,7 @@ def load_batch_worker(
         }
 
 
-async def _load_batch_async(
+def _load_batch(
     file_paths: List[Path],
     model: str,
     content_dir: Path,
@@ -1538,7 +1528,7 @@ async def _load_batch_async(
     db_password: str,
     force: bool,
 ) -> Tuple[int, int]:
-    """Async helper for loading a batch of files in a worker process."""
+    """Load a batch of files in a worker process."""
 
     # Create database manager
     db_manager = DatabaseManager(
@@ -1582,14 +1572,12 @@ async def _load_batch_async(
         return 0, 0
 
     # Load the batch into database
-    processed, errors = await db_manager.load_document_batch(
-        files_data, content_dir, force
-    )
+    processed, errors = db_manager.load_document_batch(files_data, content_dir, force)
 
     return processed, errors
 
 
-async def load_documents(
+def load_documents(
     content_dir: str | None = None,
     model: str | None = None,
     pattern: str | None = None,
@@ -1668,7 +1656,7 @@ async def load_documents(
     )
 
     # Ensure database exists and schema is initialized
-    await _ensure_database_exists(host, port, db, user, password)
+    _ensure_database_exists(host, port, db, user, password)
 
     # Create a temporary database manager just for schema initialization
     db_manager = DatabaseManager(
@@ -1679,13 +1667,13 @@ async def load_documents(
         password=password,
     )
 
-    await db_manager.initialize_schema()
+    db_manager.initialize_schema()
 
     # Handle schema_metadata (insert or update)
-    async with await db_manager.get_direct_connection() as conn:
+    with db_manager.get_direct_connection() as conn:
         # Check if metadata exists and if it's been configured
-        result = await conn.execute("SELECT title FROM schema_metadata WHERE id = 1")
-        row = await result.fetchone()
+        result = conn.execute("SELECT title FROM schema_metadata WHERE id = 1")
+        row = result.fetchone()
         metadata_exists = row is not None
         metadata_configured = (
             metadata_exists and row[0] is not None
@@ -1693,7 +1681,7 @@ async def load_documents(
 
         if metadata_configured:
             # Update existing, configured metadata
-            await db_manager.update_schema_metadata(
+            db_manager.update_schema_metadata(
                 conn,
                 title=title,
                 description=description,
@@ -1703,25 +1691,25 @@ async def load_documents(
             # (metadata record may exist from initialize_schema, but hasn't been configured yet)
             if metadata_exists:
                 # Update the initialized-but-not-configured record
-                await db_manager.update_schema_metadata(
+                db_manager.update_schema_metadata(
                     conn,
                     title=title,
                     description=description,
                 )
             else:
                 # Insert new metadata (shouldn't happen after initialize_schema)
-                await db_manager.insert_schema_metadata(
+                db_manager.insert_schema_metadata(
                     conn,
                     title=title,
                     description=description,
                 )
-        await conn.commit()
+        conn.commit()
 
     content_path = Path(content_dir)
     if not content_path.exists():
         raise ContentError(f"Content directory does not exist: {content_dir}")
 
-    file_pairs_list = await load_files(content_path, model, pattern, force)
+    file_pairs_list = load_files(content_path, model, pattern, force)
 
     if len(file_pairs_list) == 0:
         logger.info("No files to load")
@@ -1730,24 +1718,22 @@ async def load_documents(
     logger.info(f"Found {len(file_pairs_list)} embedding files for model: {model}")
 
     # Count records BEFORE the operation starts
-    async with await db_manager.get_direct_connection() as conn:
-        result = await conn.execute("SELECT COUNT(*) FROM documents")
-        row = await result.fetchone()
+    with db_manager.get_direct_connection() as conn:
+        result = conn.execute("SELECT COUNT(*) FROM documents")
+        row = result.fetchone()
         documents_before = row[0] if row else 0
 
-        result = await conn.execute("SELECT COUNT(*) FROM chunks")
-        row = await result.fetchone()
+        result = conn.execute("SELECT COUNT(*) FROM chunks")
+        row = result.fetchone()
         chunks_before = row[0] if row else 0
 
-        result = await conn.execute("SELECT COUNT(*) FROM embeddings")
-        row = await result.fetchone()
+        result = conn.execute("SELECT COUNT(*) FROM embeddings")
+        row = result.fetchone()
         embeddings_before = row[0] if row else 0
 
         # Check if this model already exists in models table
-        result = await conn.execute(
-            "SELECT COUNT(*) FROM models WHERE name = %s", [model]
-        )
-        row = await result.fetchone()
+        result = conn.execute("SELECT COUNT(*) FROM models WHERE name = %s", [model])
+        row = result.fetchone()
         model_existed_before = (row[0] if row else 0) > 0
 
     processor = BatchProcessor(
@@ -1774,14 +1760,14 @@ async def load_documents(
 
     # Record this load operation in schema_changes
     if loaded > 0:
-        async with await db_manager.get_direct_connection() as conn:
+        with db_manager.get_direct_connection() as conn:
             # Get current embedding model count from models table
-            result = await conn.execute("SELECT COUNT(*) FROM models")
-            row = await result.fetchone()
+            result = conn.execute("SELECT COUNT(*) FROM models")
+            row = result.fetchone()
             model_count = row[0] if row else 0
 
             # Update embedding_models_count in metadata
-            await db_manager.update_schema_metadata(
+            db_manager.update_schema_metadata(
                 conn,
                 embedding_models_count=model_count,
             )
@@ -1794,18 +1780,18 @@ async def load_documents(
                 operation_note += f" ({errors} errors)"
 
             # Count records AFTER the operation and calculate the diff
-            result = await conn.execute("SELECT COUNT(*) FROM documents")
-            row = await result.fetchone()
+            result = conn.execute("SELECT COUNT(*) FROM documents")
+            row = result.fetchone()
             documents_after = row[0] if row else 0
             documents_added_count = documents_after - documents_before
 
-            result = await conn.execute("SELECT COUNT(*) FROM chunks")
-            row = await result.fetchone()
+            result = conn.execute("SELECT COUNT(*) FROM chunks")
+            row = result.fetchone()
             chunks_after = row[0] if row else 0
             chunks_added_count = chunks_after - chunks_before
 
-            result = await conn.execute("SELECT COUNT(*) FROM embeddings")
-            row = await result.fetchone()
+            result = conn.execute("SELECT COUNT(*) FROM embeddings")
+            row = result.fetchone()
             embeddings_after = row[0] if row else 0
             embeddings_added_count = embeddings_after - embeddings_before
 
@@ -1815,7 +1801,7 @@ async def load_documents(
                 embedding_models_added = [model]
 
             # Insert change record with all statistics
-            await db_manager.insert_schema_change(
+            db_manager.insert_schema_change(
                 conn,
                 changed_by_user=username,
                 documents_added=documents_added_count,
@@ -1825,7 +1811,7 @@ async def load_documents(
                 notes=operation_note,
             )
 
-            await conn.commit()
+            conn.commit()
 
     if errors > 0:
         logger.error(f"Load completed with {errors} errors")
@@ -2015,7 +2001,7 @@ def restore_database(
         ) from e
 
 
-async def generate_manifest(
+def generate_manifest(
     output_file: str = "manifest.txt",
     host: Optional[str] = None,
     port: Optional[int] = None,
@@ -2051,10 +2037,10 @@ async def generate_manifest(
         password=password,
     )
 
-    return await db_manager.generate_manifest(output_file)
+    return db_manager.generate_manifest(output_file)
 
 
-async def configure_rag_settings(
+def configure_rag_settings(
     refinement_prompt: Optional[str] = None,
     refinement: Optional[str] = None,
     reranking: Optional[str] = None,
@@ -2193,8 +2179,8 @@ async def configure_rag_settings(
     )
 
     # Initialize schema (if needed) and update settings
-    await db_manager.initialize_schema()
-    await db_manager.update_rag_settings(
+    db_manager.initialize_schema()
+    db_manager.update_rag_settings(
         refinement_prompt=parsed_values.get("refinement_prompt"),
         enable_refinement=parsed_values.get("enable_refinement"),
         enable_reranking=parsed_values.get("enable_reranking"),
