@@ -22,22 +22,22 @@ from docs2db.database import DatabaseManager, check_database_status, load_docume
 from docs2db.embed import generate_embeddings
 from docs2db.exceptions import DatabaseError
 from docs2db.ingest import ingest
-from tests.test_config import get_test_db_config
+from tests.test_config import get_test_db_config, should_skip_postgres_tests
 
 
-async def count_records(conn, table_name: str) -> int:
+def count_records(conn, table_name: str) -> int:
     """Count records in a table."""
-    async with conn.cursor() as cur:
-        await cur.execute(f"SELECT COUNT(*) FROM {table_name}")
-        result = await cur.fetchone()
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT COUNT(*) FROM {table_name}")
+        result = cur.fetchone()
         return result[0] if result else 0
 
 
-async def get_document_paths(conn) -> Set[str]:
+def get_document_paths(conn) -> Set[str]:
     """Get set of document paths in database."""
-    async with conn.cursor() as cur:
-        await cur.execute("SELECT path FROM documents")
-        results = await cur.fetchall()
+    with conn.cursor() as cur:
+        cur.execute("SELECT path FROM documents")
+        results = cur.fetchall()
         return {Path(row[0]).name for row in results}
 
 
@@ -69,18 +69,19 @@ class TestHighLevelIntegrationSQL:
             f.name: f.stat().st_mtime for f in directory.glob(pattern) if f.is_file()
         }
 
-    async def get_database_records(self, conn) -> Dict[str, int]:
+    def get_database_records(self, conn) -> Dict[str, int]:
         """Get counts of database records."""
         return {
-            "documents": await count_records(conn, "documents"),
-            "chunks": await count_records(conn, "chunks"),
-            "embeddings": await count_records(conn, "embeddings"),
+            "documents": count_records(conn, "documents"),
+            "chunks": count_records(conn, "chunks"),
+            "embeddings": count_records(conn, "embeddings"),
         }
 
     @pytest.mark.no_ci
-    @pytest.mark.asyncio
-    async def test_complete_pipeline_sql(self, test_workspace_dir: Path):
+    def test_complete_pipeline_sql(self, test_workspace_dir: Path):
         """Test the complete pipeline with all stages and idempotency checks."""
+        if should_skip_postgres_tests():
+            pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
 
         config = get_test_db_config()
         conn_string = f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
@@ -94,7 +95,7 @@ class TestHighLevelIntegrationSQL:
         )
 
         try:
-            await check_database_status(
+            check_database_status(
                 host=config["host"],
                 port=int(config["port"]),
                 db=config["database"],
@@ -104,7 +105,7 @@ class TestHighLevelIntegrationSQL:
         except DatabaseError as e:
             assert "pgvector extension not installed" in str(e)
 
-        await db_manager.initialize_schema()
+        db_manager.initialize_schema()
 
         # === PHASE 0: Ingestion ===
 
@@ -244,7 +245,7 @@ class TestHighLevelIntegrationSQL:
                     f"Wrong embedding dimensions in {embed_file}"
                 )
 
-        success = await load_documents(
+        success = load_documents(
             content_dir=str(content_dir),
             model="ibm-granite/granite-embedding-30m-english",
             pattern="**",
@@ -258,8 +259,8 @@ class TestHighLevelIntegrationSQL:
         assert success, "Initial database load should succeed"
 
         # Verify correct database entries were made
-        async with await psycopg.AsyncConnection.connect(conn_string) as conn:
-            initial_records = await self.get_database_records(conn)
+        with psycopg.Connection.connect(conn_string) as conn:
+            initial_records = self.get_database_records(conn)
             # Only documents with actual chunks get loaded into the database
             expected_doc_count = len(
                 expected_embed_files
@@ -278,7 +279,7 @@ class TestHighLevelIntegrationSQL:
             )
 
             # Verify correct documents are in database
-            doc_paths = await get_document_paths(conn)
+            doc_paths = get_document_paths(conn)
             # get_document_paths returns just filenames, so extract filenames from expected embed files
             # (only files with embeddings get loaded into the database)
             # gran.json and source.json are in same directory
@@ -324,7 +325,7 @@ class TestHighLevelIntegrationSQL:
         )
 
         # Test database load idempotency
-        success = await load_documents(
+        success = load_documents(
             content_dir=str(content_dir),
             model="ibm-granite/granite-embedding-30m-english",
             pattern="**",
@@ -338,8 +339,8 @@ class TestHighLevelIntegrationSQL:
         assert success, "Database load re-run should succeed"
 
         # Verify no records were updated (same counts)
-        async with await psycopg.AsyncConnection.connect(conn_string) as conn:
-            records_after_rerun = await self.get_database_records(conn)
+        with psycopg.Connection.connect(conn_string) as conn:
+            records_after_rerun = self.get_database_records(conn)
             assert initial_records == records_after_rerun, (
                 "Database records should not change on re-run"
             )
@@ -358,7 +359,7 @@ class TestHighLevelIntegrationSQL:
         )
         assert success, "Force embedding should succeed"
 
-        success = await load_documents(
+        success = load_documents(
             content_dir=str(content_dir),
             model="ibm-granite/granite-embedding-30m-english",
             pattern="**",
@@ -387,8 +388,8 @@ class TestHighLevelIntegrationSQL:
         )
 
         # Verify final database state
-        async with await psycopg.AsyncConnection.connect(conn_string) as conn:
-            final_records = await self.get_database_records(conn)
+        with psycopg.Connection.connect(conn_string) as conn:
+            final_records = self.get_database_records(conn)
             assert final_records["documents"] == expected_doc_count, (
                 f"Should have {expected_doc_count} documents in database"
             )
@@ -398,7 +399,7 @@ class TestHighLevelIntegrationSQL:
             )
 
             # Verify all documents with embeddings are in database
-            final_doc_paths = await get_document_paths(conn)
+            final_doc_paths = get_document_paths(conn)
             # Only documents with embeddings get loaded into the database
             # So we should expect the same documents that have gran.json files
             expected_final_doc_names = {

@@ -13,22 +13,22 @@ from tests.test_config import get_test_db_config, should_skip_postgres_tests
 PROJECT_ROOT = Path(__file__).parent.parent
 
 
-async def check_table_exists(conn, table_name: str) -> bool:
+def check_table_exists(conn, table_name: str) -> bool:
     """Check if a table exists in the database."""
-    async with conn.cursor() as cur:
-        await cur.execute(
+    with conn.cursor() as cur:
+        cur.execute(
             "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = %s)",
             (table_name,),
         )
-        result = await cur.fetchone()
+        result = cur.fetchone()
         return result[0] if result else False
 
 
-async def count_records(conn, table_name: str) -> int:
+def count_records(conn, table_name: str) -> int:
     """Count records in a table."""
-    async with conn.cursor() as cur:
-        await cur.execute(f"SELECT COUNT(*) FROM {table_name}")
-        result = await cur.fetchone()
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT COUNT(*) FROM {table_name}")
+        result = cur.fetchone()
         return result[0] if result else 0
 
 
@@ -36,8 +36,7 @@ class TestCLIIntegrationSQL:
     """Integration tests for CLI commands."""
 
     @pytest.mark.no_ci
-    @pytest.mark.asyncio
-    async def test_load_command_initializes_database(self):
+    def test_load_command_initializes_database(self):
         """Test that 'uv run docs2db load' properly initializes database schema.
 
         This test verifies the complete flow:
@@ -94,42 +93,41 @@ class TestCLIIntegrationSQL:
             # Connect using psycopg directly
             conn_string = f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
 
-            async with await psycopg.AsyncConnection.connect(conn_string) as conn:
+            with psycopg.Connection.connect(conn_string) as conn:
                 # Check that tables were created
-                assert await check_table_exists(conn, "documents"), (
+                assert check_table_exists(conn, "documents"), (
                     "documents table should be created"
                 )
-                assert await check_table_exists(conn, "chunks"), (
+                assert check_table_exists(conn, "chunks"), (
                     "chunks table should be created"
                 )
-                assert await check_table_exists(conn, "embeddings"), (
+                assert check_table_exists(conn, "embeddings"), (
                     "embeddings table should be created"
                 )
 
                 # Check that pgvector extension was enabled
-                async with conn.cursor() as cur:
-                    await cur.execute("SELECT '[1,2,3]'::vector")
-                    vector_result = await cur.fetchone()
+                with conn.cursor() as cur:
+                    cur.execute("SELECT '[1,2,3]'::vector")
+                    vector_result = cur.fetchone()
                     assert vector_result is not None, (
                         "pgvector extension should be enabled"
                     )
 
                 # Check that our test data was loaded
-                doc_count = await count_records(conn, "documents")
+                doc_count = count_records(conn, "documents")
                 assert doc_count > 0, "At least one document should be loaded"
 
-                chunk_count = await count_records(conn, "chunks")
+                chunk_count = count_records(conn, "chunks")
                 assert chunk_count > 0, "At least one chunk should be loaded"
 
-                embedding_count = await count_records(conn, "embeddings")
+                embedding_count = count_records(conn, "embeddings")
                 assert embedding_count > 0, "At least one embedding should be loaded"
 
         except Exception as e:
             pytest.fail(f"Test failed with exception: {e}")
 
     @pytest.mark.no_ci
-    @pytest.mark.asyncio
-    async def test_db_status_comprehensive_sql(self):
+    def test_db_status_comprehensive_sql(self):
         """Comprehensive test of db-status command."""
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
@@ -370,8 +368,7 @@ class TestCLIIntegrationSQL:
             pytest.fail(f"Test failed with exception: {e}")
 
     @pytest.mark.no_ci
-    @pytest.mark.asyncio
-    async def test_config_command_stores_rag_settings(self):
+    def test_config_command_stores_rag_settings(self):
         """Test that 'uv run docs2db config' properly stores RAG settings in database."""
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
@@ -421,16 +418,16 @@ class TestCLIIntegrationSQL:
 
             # Connect to database
             conn_string = f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
-            conn = await psycopg.AsyncConnection.connect(conn_string)
+            conn = psycopg.Connection.connect(conn_string)
 
             try:
                 # Verify rag_settings table exists
-                assert await check_table_exists(conn, "rag_settings"), (
+                assert check_table_exists(conn, "rag_settings"), (
                     "rag_settings table should exist after schema initialization"
                 )
 
                 # Verify rag_settings is initially empty (no settings row)
-                initial_count = await count_records(conn, "rag_settings")
+                initial_count = count_records(conn, "rag_settings")
                 assert initial_count == 0, "rag_settings should be empty initially"
 
                 # Now run config command to set some settings
@@ -480,8 +477,8 @@ class TestCLIIntegrationSQL:
                 )
 
                 # Verify settings were stored in database
-                async with conn.cursor() as cur:
-                    await cur.execute(
+                with conn.cursor() as cur:
+                    cur.execute(
                         """
                         SELECT refinement_prompt, enable_refinement, enable_reranking,
                                similarity_threshold, max_chunks, max_tokens_in_context,
@@ -489,7 +486,7 @@ class TestCLIIntegrationSQL:
                         FROM rag_settings WHERE id = 1
                         """
                     )
-                    row = await cur.fetchone()
+                    row = cur.fetchone()
 
                     assert row is not None, (
                         "Settings row should exist after config command"
@@ -558,15 +555,15 @@ class TestCLIIntegrationSQL:
                 )
 
                 # Verify only specified settings were updated, others remain unchanged
-                async with conn.cursor() as cur:
-                    await cur.execute(
+                with conn.cursor() as cur:
+                    cur.execute(
                         """
                         SELECT enable_refinement, enable_reranking,
                                similarity_threshold, max_chunks, refinement_prompt
                         FROM rag_settings WHERE id = 1
                         """
                     )
-                    row = await cur.fetchone()
+                    row = cur.fetchone()
 
                     assert row is not None, "Settings row should still exist"
 
@@ -659,11 +656,11 @@ class TestCLIIntegrationSQL:
                 )
 
                 # Verify refinement_prompt was cleared (set to NULL)
-                async with conn.cursor() as cur:
-                    await cur.execute(
+                with conn.cursor() as cur:
+                    cur.execute(
                         "SELECT refinement_prompt FROM rag_settings WHERE id = 1"
                     )
-                    row = await cur.fetchone()
+                    row = cur.fetchone()
                     assert row is not None, "Settings row should still exist"
                     assert row[0] is None, (
                         "refinement_prompt should be NULL after clearing with 'None'"
@@ -707,14 +704,14 @@ class TestCLIIntegrationSQL:
                 )
 
                 # Verify all settings were cleared
-                async with conn.cursor() as cur:
-                    await cur.execute(
+                with conn.cursor() as cur:
+                    cur.execute(
                         """
                         SELECT enable_refinement, enable_reranking, max_chunks, similarity_threshold
                         FROM rag_settings WHERE id = 1
                         """
                     )
-                    row = await cur.fetchone()
+                    row = cur.fetchone()
                     assert row is not None, "Settings row should still exist"
                     assert row[0] is None, "enable_refinement should be NULL"
                     assert row[1] is None, "enable_reranking should be NULL"
@@ -722,7 +719,7 @@ class TestCLIIntegrationSQL:
                     assert row[3] is None, "similarity_threshold should be NULL"
 
             finally:
-                await conn.close()
+                conn.close()
 
         except Exception as e:
             pytest.fail(f"Test failed with exception: {e}")

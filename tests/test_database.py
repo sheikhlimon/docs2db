@@ -11,55 +11,53 @@ from docs2db.database import check_database_status, load_documents
 from tests.test_config import get_test_db_config, should_skip_postgres_tests
 
 
-async def create_connection():
+def create_connection():
     """Create a connection to the test database."""
     config = get_test_db_config()
     conn_string = f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
-    return await psycopg.AsyncConnection.connect(conn_string)
+    return psycopg.Connection.connect(conn_string)
 
 
-async def count_records(conn, table_name: str) -> int:
+def count_records(conn, table_name: str) -> int:
     """Count records in a table."""
     try:
-        async with conn.cursor() as cur:
-            await cur.execute(f"SELECT COUNT(*) FROM {table_name}")
-            result = await cur.fetchone()
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) FROM {table_name}")
+            result = cur.fetchone()
             return result[0] if result else 0
     except Exception:
         # Table might not exist
         return 0
 
 
-async def table_exists(conn, table_name: str) -> bool:
+def table_exists(conn, table_name: str) -> bool:
     """Check if a table exists."""
-    async with conn.cursor() as cur:
-        await cur.execute(
+    with conn.cursor() as cur:
+        cur.execute(
             "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = %s)",
             (table_name,),
         )
-        result = await cur.fetchone()
+        result = cur.fetchone()
         return result[0] if result else False
 
 
 class TestDatabaseSQL:
     """Test database operations."""
 
-    @pytest.mark.asyncio
-    async def test_database_connection(self):
+    def test_database_connection(self):
         """Test basic database connection using psycopg."""
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
 
-        async with await create_connection() as conn:
+        with create_connection() as conn:
             # Simple connectivity test
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT 1")
-                result = await cur.fetchone()
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                result = cur.fetchone()
                 assert result is not None
                 assert result[0] == 1
 
-    @pytest.mark.asyncio
-    async def test_load_documents_empty_directory(self):
+    def test_load_documents_empty_directory(self):
         """Test loading from an empty directory."""
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
@@ -68,7 +66,7 @@ class TestDatabaseSQL:
 
         with tempfile.TemporaryDirectory() as temp_dir:
             # Load from empty directory - should succeed but load nothing
-            success = await load_documents(
+            success = load_documents(
                 content_dir=temp_dir,
                 model="ibm-granite/granite-embedding-30m-english",
                 pattern="**",
@@ -83,8 +81,7 @@ class TestDatabaseSQL:
             # Should succeed (no errors) even with no files
             assert success is True
 
-    @pytest.mark.asyncio
-    async def test_load_documents_with_test_files(self):
+    def test_load_documents_with_test_files(self):
         """Test loading actual documents."""
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
@@ -96,7 +93,7 @@ class TestDatabaseSQL:
         if not fixtures_dir.exists():
             pytest.skip("Test fixtures not available")
 
-        assert await load_documents(
+        assert load_documents(
             content_dir=str(fixtures_dir),
             model="ibm-granite/granite-embedding-30m-english",
             pattern="**",
@@ -108,8 +105,7 @@ class TestDatabaseSQL:
             force=True,  # Force to ensure it processes
         )
 
-    @pytest.mark.asyncio
-    async def test_load_documents_force_parameter(self):
+    def test_load_documents_force_parameter(self):
         """Test the force parameter in load_documents."""
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
@@ -127,7 +123,7 @@ class TestDatabaseSQL:
             test_file.write_text(json.dumps(test_data, indent=2))
 
             # Test with force=False
-            success1 = await load_documents(
+            success1 = load_documents(
                 content_dir=temp_dir,
                 model="ibm-granite/granite-embedding-30m-english",
                 pattern="**",
@@ -140,7 +136,7 @@ class TestDatabaseSQL:
             )
 
             # Test with force=True
-            success2 = await load_documents(
+            success2 = load_documents(
                 content_dir=temp_dir,
                 model="ibm-granite/granite-embedding-30m-english",
                 pattern="**",
@@ -156,8 +152,7 @@ class TestDatabaseSQL:
             assert isinstance(success1, bool)
             assert isinstance(success2, bool)
 
-    @pytest.mark.asyncio
-    async def test_database_tables_after_load(self):
+    def test_database_tables_after_load(self):
         """Test that expected tables exist after load attempt."""
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
@@ -166,7 +161,7 @@ class TestDatabaseSQL:
 
         # Try to load something to ensure schema is initialized
         with tempfile.TemporaryDirectory() as temp_dir:
-            assert await load_documents(
+            assert load_documents(
                 content_dir=temp_dir,
                 model="ibm-granite/granite-embedding-30m-english",
                 pattern="**",
@@ -178,23 +173,22 @@ class TestDatabaseSQL:
                 force=False,
             )
 
-        async with await create_connection() as conn:
+        with create_connection() as conn:
             # Check for expected tables
-            assert await table_exists(conn, "documents")
-            assert await table_exists(conn, "chunks")
-            assert await table_exists(conn, "embeddings")
+            assert table_exists(conn, "documents")
+            assert table_exists(conn, "chunks")
+            assert table_exists(conn, "embeddings")
 
-    @pytest.mark.asyncio
-    async def test_database_stats_after_operations(self):
+    def test_database_stats_after_operations(self):
         """Test database record counts after operations."""
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
 
-        async with await create_connection() as conn:
+        with create_connection() as conn:
             # Count records in each table (if they exist)
-            doc_count = await count_records(conn, "documents")
-            chunk_count = await count_records(conn, "chunks")
-            embedding_count = await count_records(conn, "embeddings")
+            doc_count = count_records(conn, "documents")
+            chunk_count = count_records(conn, "chunks")
+            embedding_count = count_records(conn, "embeddings")
 
             # All should be non-negative integers
             assert isinstance(doc_count, int)
@@ -204,8 +198,7 @@ class TestDatabaseSQL:
             assert chunk_count >= 0
             assert embedding_count >= 0
 
-    @pytest.mark.asyncio
-    async def test_load_documents_parameter_validation(self):
+    def test_load_documents_parameter_validation(self):
         """Test parameter validation for load_documents function."""
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
@@ -215,7 +208,7 @@ class TestDatabaseSQL:
         with tempfile.TemporaryDirectory() as temp_dir:
             # Test with valid parameters
             try:
-                success = await load_documents(
+                success = load_documents(
                     content_dir=temp_dir,
                     model="ibm-granite/granite-embedding-30m-english",
                     pattern="**",
@@ -232,15 +225,14 @@ class TestDatabaseSQL:
                 # Schema issues are acceptable for this interface test
                 assert isinstance(e, Exception)
 
-    @pytest.mark.asyncio
-    async def test_connection_error_handling(self):
+    def test_connection_error_handling(self):
         """Test connection error handling."""
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
 
         # Test with invalid port
         try:
-            await check_database_status(
+            check_database_status(
                 host="localhost",
                 port=9999,  # Invalid port
                 db="test_db",
@@ -251,8 +243,7 @@ class TestDatabaseSQL:
             # Should handle connection errors gracefully
             assert "connection" in str(e).lower() or "refused" in str(e).lower()
 
-    @pytest.mark.asyncio
-    async def test_database_functions_interface(self):
+    def test_database_functions_interface(self):
         """Test that all SQL functions have the expected interface."""
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
@@ -261,7 +252,7 @@ class TestDatabaseSQL:
 
         # Test load_documents interface - initalizes database.
         with tempfile.TemporaryDirectory() as temp_dir:
-            assert await load_documents(
+            assert load_documents(
                 content_dir=temp_dir,
                 model="ibm-granite/granite-embedding-30m-english",
                 pattern="**",
@@ -272,7 +263,7 @@ class TestDatabaseSQL:
                 password=config["password"],
             )
 
-        result = await check_database_status(
+        result = check_database_status(
             host=config["host"],
             port=int(config["port"]),
             db=config["database"],
