@@ -174,8 +174,13 @@ class DatabaseManager:
 
     def get_direct_connection(self):
         """Get a direct database connection."""
-        connection_string = f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
-        return psycopg.Connection.connect(connection_string)
+        return psycopg.Connection.connect(
+            host=self.host,
+            port=self.port,
+            dbname=self.database,
+            user=self.user,
+            password=self.password,
+        )
 
     def insert_schema_metadata(
         self,
@@ -1126,12 +1131,13 @@ def check_database_status(
     # Section 1: Test basic PostgreSQL server connectivity
     try:
         # First try a direct connection to catch auth errors immediately
-        basic_connection_string = (
-            f"postgresql://{user}:{password}@{host}:{port}/postgres"
-        )
-
         with psycopg.Connection.connect(
-            basic_connection_string, connect_timeout=5
+            host=host,
+            port=port,
+            dbname="postgres",
+            user=user,
+            password=password,
+            connect_timeout=5,
         ) as conn:
             # Test basic connectivity
             result = conn.execute("SELECT version(), now()")
@@ -1413,11 +1419,13 @@ def _ensure_database_exists(
     """Ensure the target database exists, create it if it doesn't."""
 
     # Connect to the default postgres database to check/create our target database
-    connection_str = f"postgresql://{user}:{password}@{host}:{port}/postgres"
-
     try:
         with psycopg.Connection.connect(
-            connection_str,
+            host=host,
+            port=port,
+            dbname="postgres",
+            user=user,
+            password=password,
             connect_timeout=5,
             autocommit=True,  # Needed for CREATE DATABASE
         ) as conn:
