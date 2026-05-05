@@ -221,9 +221,9 @@ class TestDatabaseSQL:
                     batch_size=50,  # Test optional parameter
                 )
                 assert isinstance(success, bool)
-            except Exception as e:
+            except Exception:
                 # Schema issues are acceptable for this interface test
-                assert isinstance(e, Exception)
+                pass
 
     def test_connection_error_handling(self):
         """Test connection error handling."""

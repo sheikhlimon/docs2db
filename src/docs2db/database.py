@@ -911,13 +911,11 @@ class DatabaseManager:
                         errors += 1
 
                 # Bulk insert chunks and collect chunk IDs
-                chunk_id_map = {}  # (source_file, chunk_idx) -> chunk_id
-
                 for (
                     source_file,
                     chunk_data,
                     embedding_vector,
-                    model,
+                    _,
                 ) in chunks_data:
                     try:
                         chunk_result = conn.execute(
@@ -941,9 +939,6 @@ class DatabaseManager:
                             )
 
                         chunk_id = chunk_row[0]
-                        chunk_id_map[(source_file, chunk_data[1])] = (
-                            chunk_id  # chunk_data[1] is chunk_index
-                        )
 
                         # Prepare embedding data
                         embedding_data_tuple = (
@@ -1748,7 +1743,7 @@ def load_documents(
             password,
             force,
         ),
-        progress_message=f"Loading files...",
+        progress_message="Loading files...",
         batch_size=batch_size,
         mem_threshold_mb=2000,
     )
