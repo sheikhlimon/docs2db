@@ -10,29 +10,29 @@ from docs2db.database import DatabaseManager, load_documents
 from tests.test_config import get_test_db_config, should_skip_postgres_tests
 
 
-async def create_connection():
+def create_connection():
     """Create a connection to the test database."""
     config = get_test_db_config()
     conn_string = f"postgresql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
-    return await psycopg.AsyncConnection.connect(conn_string)
+    return psycopg.Connection.connect(conn_string)
 
 
-async def get_schema_metadata(conn):
+def get_schema_metadata(conn):
     """Get schema_metadata record."""
-    async with conn.cursor() as cur:
-        await cur.execute("SELECT * FROM schema_metadata WHERE id = 1")
-        result = await cur.fetchone()
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM schema_metadata WHERE id = 1")
+        result = cur.fetchone()
         if result:
             columns = [desc[0] for desc in cur.description]
             return dict(zip(columns, result))
     return None
 
 
-async def get_schema_changes(conn):
+def get_schema_changes(conn):
     """Get all schema_changes records."""
-    async with conn.cursor() as cur:
-        await cur.execute("SELECT * FROM schema_changes ORDER BY id")
-        results = await cur.fetchall()
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM schema_changes ORDER BY id")
+        results = cur.fetchall()
         columns = [desc[0] for desc in cur.description]
         return [dict(zip(columns, row)) for row in results]
 
@@ -40,8 +40,7 @@ async def get_schema_changes(conn):
 class TestSchemaMetadata:
     """Test schema metadata functionality."""
 
-    @pytest.mark.asyncio
-    async def test_metadata_lifecycle(self):
+    def test_metadata_lifecycle(self):
         """Test complete lifecycle: create, no change, update metadata across multiple loads."""
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
@@ -53,7 +52,7 @@ class TestSchemaMetadata:
             pytest.skip("Test fixtures not available")
 
         # === FIRST LOAD: Create metadata ===
-        success = await load_documents(
+        success = load_documents(
             content_dir=str(fixtures_dir),
             model="ibm-granite/granite-embedding-30m-english",
             pattern="**",
@@ -72,9 +71,9 @@ class TestSchemaMetadata:
         assert success is True
 
         # Verify schema_metadata was created
-        async with await create_connection() as conn:
-            metadata = await get_schema_metadata(conn)
-            changes = await get_schema_changes(conn)
+        with create_connection() as conn:
+            metadata = get_schema_metadata(conn)
+            changes = get_schema_changes(conn)
 
             assert metadata is not None
             assert metadata["id"] == 1
@@ -91,7 +90,7 @@ class TestSchemaMetadata:
             assert changes[1]["notes"] == "Initial test load"
 
         # === SECOND LOAD: No metadata changes ===
-        success = await load_documents(
+        success = load_documents(
             content_dir=str(fixtures_dir),
             model="ibm-granite/granite-embedding-30m-english",
             pattern="**",
@@ -108,9 +107,9 @@ class TestSchemaMetadata:
         assert success is True
 
         # Verify metadata unchanged (None values don't update)
-        async with await create_connection() as conn:
-            metadata = await get_schema_metadata(conn)
-            changes = await get_schema_changes(conn)
+        with create_connection() as conn:
+            metadata = get_schema_metadata(conn)
+            changes = get_schema_changes(conn)
 
             assert metadata is not None
             assert metadata["title"] == "Test Database"  # Unchanged
@@ -123,7 +122,7 @@ class TestSchemaMetadata:
             assert changes[2]["changed_by_user"] == "test_user2"
 
         # === THIRD LOAD: Update metadata ===
-        success = await load_documents(
+        success = load_documents(
             content_dir=str(fixtures_dir),
             model="ibm-granite/granite-embedding-30m-english",
             pattern="**",
@@ -142,9 +141,9 @@ class TestSchemaMetadata:
         assert success is True
 
         # Verify metadata was updated
-        async with await create_connection() as conn:
-            metadata = await get_schema_metadata(conn)
-            changes = await get_schema_changes(conn)
+        with create_connection() as conn:
+            metadata = get_schema_metadata(conn)
+            changes = get_schema_changes(conn)
 
             assert metadata is not None
             assert metadata["title"] == "Updated Test Database"
@@ -156,8 +155,7 @@ class TestSchemaMetadata:
             # User provided note should be used
             assert changes[3]["notes"] == "Third load with updates"
 
-    @pytest.mark.asyncio
-    async def test_embedding_models_count_updates(self):
+    def test_embedding_models_count_updates(self):
         """Test that embedding_models_count is updated correctly."""
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
@@ -172,26 +170,25 @@ class TestSchemaMetadata:
             user=config["user"],
             password=config["password"],
         )
-        await db_manager.initialize_schema()
+        db_manager.initialize_schema()
 
-        async with await create_connection() as conn:
-            metadata = await get_schema_metadata(conn)
+        with create_connection() as conn:
+            metadata = get_schema_metadata(conn)
 
             assert metadata is not None
             # Count should be 0 initially (no embeddings loaded yet)
             assert metadata["embedding_models_count"] == 0
 
             # Get actual count from database (from models table now)
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT COUNT(*) FROM models")
-                result = await cur.fetchone()
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM models")
+                result = cur.fetchone()
                 actual_count = result[0] if result else 0
 
             # Should match
             assert metadata["embedding_models_count"] == actual_count
 
-    @pytest.mark.asyncio
-    async def test_schema_change_timestamps(self):
+    def test_schema_change_timestamps(self):
         """Test that schema_changes have valid timestamps."""
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
@@ -206,10 +203,10 @@ class TestSchemaMetadata:
             user=config["user"],
             password=config["password"],
         )
-        await db_manager.initialize_schema()
+        db_manager.initialize_schema()
 
-        async with await create_connection() as conn:
-            changes = await get_schema_changes(conn)
+        with create_connection() as conn:
+            changes = get_schema_changes(conn)
 
             assert len(changes) > 0
 
@@ -221,8 +218,7 @@ class TestSchemaMetadata:
             for i in range(1, len(changes)):
                 assert changes[i]["changed_at"] >= changes[i - 1]["changed_at"]
 
-    @pytest.mark.asyncio
-    async def test_helper_methods_directly(self):
+    def test_helper_methods_directly(self):
         """Test insert_schema_metadata, update_schema_metadata, and insert_schema_change directly."""
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
@@ -239,40 +235,40 @@ class TestSchemaMetadata:
         )
 
         # Initialize schema first
-        await db_manager.initialize_schema()
+        db_manager.initialize_schema()
 
-        async with await db_manager.get_direct_connection() as conn:
+        with db_manager.get_direct_connection() as conn:
             # Delete the existing metadata record so we can test insert
-            await conn.execute("DELETE FROM schema_metadata WHERE id = 1")
-            await conn.commit()
+            conn.execute("DELETE FROM schema_metadata WHERE id = 1")
+            conn.commit()
 
             # Test insert_schema_metadata
-            await db_manager.insert_schema_metadata(
+            db_manager.insert_schema_metadata(
                 conn,
                 title="Test DB",
                 description="Test Description",
             )
-            await conn.commit()
+            conn.commit()
 
-            metadata = await get_schema_metadata(conn)
+            metadata = get_schema_metadata(conn)
             assert metadata is not None
             assert metadata["title"] == "Test DB"
             assert metadata["description"] == "Test Description"
 
             # Test update_schema_metadata
-            await db_manager.update_schema_metadata(
+            db_manager.update_schema_metadata(
                 conn, title="Updated DB", embedding_models_count=5
             )
-            await conn.commit()
+            conn.commit()
 
-            metadata = await get_schema_metadata(conn)
+            metadata = get_schema_metadata(conn)
             assert metadata is not None
             assert metadata["title"] == "Updated DB"
             assert metadata["description"] == "Test Description"  # Unchanged
             assert metadata["embedding_models_count"] == 5
 
             # Test insert_schema_change
-            await db_manager.insert_schema_change(
+            db_manager.insert_schema_change(
                 conn,
                 changed_by_user="test_helper",
                 documents_added=10,
@@ -281,9 +277,9 @@ class TestSchemaMetadata:
                 embedding_models_added=["test-model"],
                 notes="Helper method test",
             )
-            await conn.commit()
+            conn.commit()
 
-            changes = await get_schema_changes(conn)
+            changes = get_schema_changes(conn)
             # Should have creation + our test change
             assert len(changes) >= 2
             last_change = changes[-1]
@@ -294,8 +290,7 @@ class TestSchemaMetadata:
             assert last_change["embedding_models_added"] == ["test-model"]
             assert last_change["notes"] == "Helper method test"
 
-    @pytest.mark.asyncio
-    async def test_schema_version_consistency(self):
+    def test_schema_version_consistency(self):
         """Test that schema_version is consistent across metadata and changes."""
         if should_skip_postgres_tests():
             pytest.skip("PostgreSQL tests are disabled (TEST_SKIP_POSTGRES=1)")
@@ -310,11 +305,11 @@ class TestSchemaMetadata:
             user=config["user"],
             password=config["password"],
         )
-        await db_manager.initialize_schema()
+        db_manager.initialize_schema()
 
-        async with await create_connection() as conn:
-            metadata = await get_schema_metadata(conn)
-            changes = await get_schema_changes(conn)
+        with create_connection() as conn:
+            metadata = get_schema_metadata(conn)
+            changes = get_schema_changes(conn)
 
             assert metadata is not None
             assert len(changes) > 0

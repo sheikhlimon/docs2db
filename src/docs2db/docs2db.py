@@ -1,6 +1,5 @@
 """RAG Pipeline Tools for docs2db"""
 
-import asyncio
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -230,23 +229,21 @@ def load(
 ) -> None:
     """Load documents, chunks, and embeddings into PostgreSQL database with pgvector."""
     try:
-        if not asyncio.run(
-            load_documents(
-                content_dir=content_dir,
-                model=model,
-                pattern=pattern,
-                host=host,
-                port=port,
-                db=db,
-                user=user,
-                password=password,
-                force=force,
-                batch_size=batch_size,
-                username=username,
-                title=title,
-                description=description,
-                note=note,
-            )
+        if not load_documents(
+            content_dir=content_dir,
+            model=model,
+            pattern=pattern,
+            host=host,
+            port=port,
+            db=db,
+            user=user,
+            password=password,
+            force=force,
+            batch_size=batch_size,
+            username=username,
+            title=title,
+            description=description,
+            note=note,
         ):
             raise typer.Exit(1)
     except Docs2DBException as e:
@@ -279,14 +276,12 @@ def db_status(
 ) -> None:
     """Check database status and display statistics."""
     try:
-        asyncio.run(
-            check_database_status(
-                host=host,
-                port=port,
-                db=db,
-                user=user,
-                password=password,
-            )
+        check_database_status(
+            host=host,
+            port=port,
+            db=db,
+            user=user,
+            password=password,
         )
     except Docs2DBException as e:
         logger.error(str(e))
@@ -454,21 +449,19 @@ def config(
       docs2db config --refinement-prompt None --reranking None  # Clear settings
     """
     try:
-        asyncio.run(
-            configure_rag_settings(
-                refinement_prompt=refinement_prompt,
-                refinement=refinement,
-                reranking=reranking,
-                similarity_threshold=similarity_threshold,
-                max_chunks=max_chunks,
-                max_tokens_in_context=max_tokens_in_context,
-                refinement_questions_count=refinement_questions_count,
-                host=host,
-                port=port,
-                db=db,
-                user=user,
-                password=password,
-            )
+        configure_rag_settings(
+            refinement_prompt=refinement_prompt,
+            refinement=refinement,
+            reranking=reranking,
+            similarity_threshold=similarity_threshold,
+            max_chunks=max_chunks,
+            max_tokens_in_context=max_tokens_in_context,
+            refinement_questions_count=refinement_questions_count,
+            host=host,
+            port=port,
+            db=db,
+            user=user,
+            password=password,
         )
     except Docs2DBException as e:
         logger.error(str(e))
@@ -503,15 +496,13 @@ def manifest(
 ) -> None:
     """Generate a manifest file with all unique source files from the database."""
     try:
-        if not asyncio.run(
-            generate_manifest(
-                output_file=output_file,
-                host=host,
-                port=port,
-                db=db,
-                user=user,
-                password=password,
-            )
+        if not generate_manifest(
+            output_file=output_file,
+            host=host,
+            port=port,
+            db=db,
+            user=user,
+            password=password,
         ):
             raise typer.Exit(1)
     except Docs2DBException as e:
@@ -718,23 +709,21 @@ def pipeline(
 
         # Step 5: Load
         logger.info("[5/7] Loading into database...")
-        if not asyncio.run(
-            load_documents(
-                content_dir=content_dir,
-                model=model,
-                pattern="**",
-                host=None,
-                port=None,
-                db=None,
-                user=None,
-                password=None,
-                force=False,
-                batch_size=100,
-                username=username,
-                title=title,
-                description=description,
-                note=note,
-            )
+        if not load_documents(
+            content_dir=content_dir,
+            model=model,
+            pattern="**",
+            host=None,
+            port=None,
+            db=None,
+            user=None,
+            password=None,
+            force=False,
+            batch_size=100,
+            username=username,
+            title=title,
+            description=description,
+            note=note,
         ):
             raise Docs2DBException("Failed to load into database")
 
