@@ -32,6 +32,15 @@ Thank you for your interest in contributing to Docs2DB! This guide will help you
    uv run pre-commit install
    ```
 
+## Continuous Integration
+
+Pull requests are automatically checked by GitHub Actions:
+
+- **Lint**: ruff (linting + formatting) and pyright (type checking)
+- **Test**: Full test suite against PostgreSQL (port 5433)
+
+Both checks must pass before merge. Pre-commit hooks cover linting, formatting, type checking, and secret detection — but not tests. Run tests separately with `make test` (requires PostgreSQL — see below).
+
 ## Development Workflow
 
 ### Running Tests
