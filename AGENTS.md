@@ -46,7 +46,7 @@ make db-down-test
 
 ## Code Architecture
 
-```
+```text
 src/docs2db/
 ├── docs2db.py      # CLI interface (Typer app, 783 lines) — all commands defined here
 ├── database.py     # PostgreSQL + pgvector operations (2216 lines, largest file)

@@ -39,7 +39,7 @@ Pull requests are automatically checked by GitHub Actions:
 - **Lint**: ruff (linting + formatting) and pyright (type checking)
 - **Test**: Full test suite against PostgreSQL (port 5433)
 
-Both checks must pass before merge. The same checks run locally via pre-commit hooks.
+Both checks must pass before merge. Pre-commit hooks cover linting, formatting, type checking, and secret detection — but not tests. Run tests separately with `make test` (requires PostgreSQL — see below).
 
 ## Development Workflow
 

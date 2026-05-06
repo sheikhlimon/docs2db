@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- GitHub Actions CI workflow (lint + PostgreSQL-backed test suite)
+- OpenSSF Scorecard workflow for security scoring
+- CodeRabbit configuration for automated code review
+- Renovate configuration for automated dependency updates
+- Pull request template
+- AGENTS.md repository knowledge base for AI agents
+- CONTRIBUTING.md development guide
+- SECURITY.md vulnerability disclosure policy
+
 ### Changed
 - Converted database layer from async psycopg (`AsyncConnection`) to sync psycopg (`Connection`), eliminating nested event loop issues with single-threaded batch processing
 - Removed `pytest-asyncio` and `greenlet` dev dependencies
